@@ -17,16 +17,16 @@ down:
 	docker-compose down --remove-orphans
 
 test-allocation: up
-	docker-compose run --rm --no-deps --entrypoint=pytest api /tests/allocation/unit /tests/allocation/integration /tests/allocation/e2e
+	docker-compose run --rm --no-deps --entrypoint=pytest api /tests/test_allocation/unit /tests/test_allocation/integration /tests/test_allocation/e2e
 
 unit-tests-allocation:
-	docker-compose run --rm --no-deps --entrypoint=pytest api /tests/unit
+	docker-compose run --rm --no-deps --entrypoint=pytest api /tests/test_allocation/unit
 
 integration-tests-allocation: up
-	docker-compose run --rm --no-deps --entrypoint=pytest api /tests/integration
+	docker-compose run --rm --no-deps --entrypoint=pytest api /tests/test_allocation/integration
 
 e2e-tests-allocation: up
-	docker-compose run --rm --no-deps --entrypoint=pytest api /tests/e2e
+	docker-compose run --rm --no-deps --entrypoint=pytest api /tests/test_allocation/e2e
 
 logs:
 	docker-compose logs --tail=25 api redis_pubsub
