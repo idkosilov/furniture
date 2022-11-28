@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Optional, Set
+from typing import Optional, Set, List
 
 import asyncpg
 
@@ -14,6 +14,9 @@ class AbstractRepository(ABC):
 
     @abstractmethod
     async def add(self, batch: model.Batch) -> None:
+        ...
+
+    async def list(self) -> List[model.Batch]:
         ...
 
 
@@ -36,7 +39,6 @@ class PostgresRepository(AbstractRepository):
                 WHERE batch_ref = $1
                 GROUP BY b.id
                 """
-
         batch_row = await self._connection.fetchrow(query, reference)
 
         batch = model.Batch(batch_row["reference"],
@@ -59,7 +61,6 @@ class PostgresRepository(AbstractRepository):
                 ON CONFLICT ( batch_ref ) DO NOTHING 
                 RETURNING id
                 """
-
         batch_id = await self._connection.fetchrow(query,
                                                    batch.reference,
                                                    batch.stock_keeping_unit,
@@ -74,7 +75,6 @@ class PostgresRepository(AbstractRepository):
                 )
                 RETURNING id
                 """
-
         order_lines_ids = await self._connection.fetch(query, [
             (None, order_line.stock_keeping_unit, order_line.quantity, order_line.order_reference)
             for order_line in batch.allocations
@@ -87,10 +87,40 @@ class PostgresRepository(AbstractRepository):
                     FROM unnest($1::allocations[]) as r 
                 )
                 """
-
         await self._connection.fetch(query, [
             (None, order_line_id['id'], batch_id['id'])
             for order_line_id in order_lines_ids
         ])
 
         self._seen.add(batch)
+
+    async def list(self) -> List[model.Batch]:
+        query = """
+                        SELECT b.batch_ref AS reference, 
+                               b.sku AS stock_keeping_unit, 
+                               b.qty AS quantity, 
+                               b.eta AS estimated_arrival_time, 
+                               array_agg(row(ol.order_ref, ol.sku, ol.qty)) AS allocations
+                        FROM batches b
+                        JOIN allocations a ON b.id = a.batch_id
+                        JOIN order_lines ol ON ol.id = a.order_line_id
+                        GROUP BY b.id
+                        """
+        batch_rows = await self._connection.fetch(query)
+
+        batches = []
+
+        for batch_row in batch_rows:
+            batch = model.Batch(batch_row["reference"],
+                                batch_row["stock_keeping_unit"],
+                                batch_row["quantity"],
+                                batch_row["estimated_arrival_time"])
+
+            for order_line_row in batch_row["allocations"]:
+                order_line = model.OrderLine(*order_line_row)
+                batch.allocate(order_line)
+
+            batches.append(batch)
+            self._seen.add(batch)
+
+        return batch_rows
