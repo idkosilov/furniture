@@ -74,6 +74,21 @@ async def test_repository_can_save_a_batch_with_allocations(pg_connection):
 
 
 @pytest.mark.asyncio
+async def test_repository_can_retrieve_a_batch_without_allocations(pg_connection):
+    await insert_batch(pg_connection, "batch-1", "SMALL-TABLE", 100, now)
+
+    repo = repository.PostgresRepository(pg_connection)
+    retrieved = await repo.get("batch-1")
+
+    expected = model.Batch("batch-1", "SMALL-TABLE", 100, None)
+
+    assert retrieved == expected
+    assert retrieved.stock_keeping_unit == expected.stock_keeping_unit
+    assert retrieved.purchased_quantity == expected._purchased_quantity
+    assert retrieved.allocations == set()
+
+
+@pytest.mark.asyncio
 async def test_repository_can_retrieve_a_batch_with_allocations(pg_connection):
     order_line_1_id = await insert_order_line(pg_connection, "order-1", "SMALL-TABLE", 10)
     order_line_2_id = await insert_order_line(pg_connection, "order-2", "SMALL-TABLE", 10)
