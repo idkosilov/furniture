@@ -34,8 +34,8 @@ class PostgresRepository(AbstractRepository):
                        b.eta AS estimated_arrival_time, 
                        array_agg(row(ol.order_ref, ol.sku, ol.qty)) AS allocations
                 FROM batches b
-                JOIN allocations a ON b.id = a.batch_id
-                JOIN order_lines ol ON ol.id = a.order_line_id
+                LEFT JOIN allocations a ON b.id = a.batch_id
+                LEFT JOIN order_lines ol ON ol.id = a.order_line_id
                 WHERE batch_ref = $1
                 GROUP BY b.id
                 """
@@ -102,8 +102,8 @@ class PostgresRepository(AbstractRepository):
                                b.eta AS estimated_arrival_time, 
                                array_agg(row(ol.order_ref, ol.sku, ol.qty)) AS allocations
                         FROM batches b
-                        JOIN allocations a ON b.id = a.batch_id
-                        JOIN order_lines ol ON ol.id = a.order_line_id
+                        LEFT JOIN allocations a ON b.id = a.batch_id
+                        LEFT JOIN order_lines ol ON ol.id = a.order_line_id
                         GROUP BY b.id
                         """
         batch_rows = await self._connection.fetch(query)
@@ -124,3 +124,10 @@ class PostgresRepository(AbstractRepository):
             self._seen.add(batch)
 
         return batch_rows
+
+    async def _update(self, batch: model.Batch) -> None:
+        ...
+
+    async def save_changes(self):
+        for batch in self._seen:
+            await self._update(batch)
