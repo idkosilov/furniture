@@ -1,10 +1,17 @@
+import asyncio
+
 import asyncpg
 import pytest_asyncio
 
 from allocation import config
 
 
-@pytest_asyncio.fixture
+@pytest_asyncio.fixture(scope="session")
+def event_loop():
+    return asyncio.get_event_loop()
+
+
+@pytest_asyncio.fixture(scope="session")
 async def pg_pool():
     poll = await asyncpg.create_pool(dsn=config.get_postgres_uri())
     return poll
