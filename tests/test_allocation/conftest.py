@@ -1,17 +1,19 @@
-import pytest
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+import asyncpg
+import pytest_asyncio
 
-from allocation.adapters.db_tables import metadata
-
-
-@pytest.fixture
-def in_memory_db():
-    engine = create_engine("sqlite:///:memory:")
-    metadata.create_all(engine)
-    return engine
+from allocation import config
 
 
-@pytest.fixture
-def session(in_memory_db):
-    yield sessionmaker(bind=in_memory_db)()
+@pytest_asyncio.fixture
+async def pg_pool():
+    poll = await asyncpg.create_pool(dsn=config.get_postgres_uri())
+    return poll
+
+
+@pytest_asyncio.fixture
+async def pg_connection(pg_pool):
+    async with pg_pool.acquire() as connection:
+        transaction = connection.transaction()
+        await transaction.start()
+        yield connection
+        await transaction.rollback()
