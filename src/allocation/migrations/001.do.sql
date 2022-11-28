@@ -44,7 +44,7 @@ CREATE TABLE IF NOT EXISTS allocations (
     order_line_id    integer NOT NULL,
     batch_id         integer NOT NULL,
     PRIMARY KEY ( id ),
-    FOREIGN KEY ( order_line_id ) REFERENCES order_lines ( id ),
+    FOREIGN KEY ( order_line_id ) REFERENCES order_lines ( id ) ON DELETE CASCADE,
     FOREIGN KEY ( batch_id ) REFERENCES batches ( id )
 );
 
