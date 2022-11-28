@@ -65,6 +65,14 @@ class Batch:
     def can_allocate(self, line: OrderLine) -> bool:
         return self.stock_keeping_unit == line.stock_keeping_unit and self.available_quantity >= line.quantity
 
+    @property
+    def allocations(self):
+        return self._allocations
+
+    @property
+    def purchased_quantity(self):
+        return self._purchased_quantity
+
 
 def allocate(line: OrderLine, batches: List[Batch]) -> str:
     try:
