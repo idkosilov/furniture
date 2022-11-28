@@ -24,21 +24,22 @@ class PostgresRepository(AbstractRepository):
 
     def __init__(self, connection: asyncpg.Connection) -> None:
         self._connection = connection
-        self._seen: Set[model.Batch] = set()
+        self._seen: Set[(int, model.Batch)] = set()
 
     async def get(self, reference: str) -> Optional[model.Batch]:
         query = """
-                SELECT b.batch_ref AS reference, 
-                       b.sku AS stock_keeping_unit, 
-                       b.qty AS quantity, 
-                       b.eta AS estimated_arrival_time, 
-                       array_agg(row(ol.order_ref, ol.sku, ol.qty)) AS allocations
-                FROM batches b
-                LEFT JOIN allocations a ON b.id = a.batch_id
-                LEFT JOIN order_lines ol ON ol.id = a.order_line_id
-                WHERE batch_ref = $1
-                GROUP BY b.id
-                """
+            SELECT b.id AS id,
+                   b.batch_ref AS reference, 
+                   b.sku AS stock_keeping_unit, 
+                   b.qty AS quantity, 
+                   b.eta AS estimated_arrival_time, 
+                   array_agg(row(ol.order_ref, ol.sku, ol.qty)) AS allocations
+            FROM batches b
+            LEFT JOIN allocations a ON b.id = a.batch_id
+            LEFT JOIN order_lines ol ON ol.id = a.order_line_id
+            WHERE batch_ref = $1
+            GROUP BY b.id
+        """
         batch_row = await self._connection.fetchrow(query, reference)
 
         batch = model.Batch(batch_row["reference"],
@@ -50,62 +51,58 @@ class PostgresRepository(AbstractRepository):
             order_line = model.OrderLine(*order_line_row)
             batch.allocate(order_line)
 
-        self._seen.add(batch)
+        self._seen.add((batch_row["id"], batch))
 
         return batch
 
     async def add(self, batch: model.Batch) -> None:
         query = """
+            WITH ib AS (
                 INSERT INTO batches (batch_ref, sku, qty, eta) 
                 VALUES ($1, $2, $3, $4)
-                ON CONFLICT ( batch_ref ) DO NOTHING 
                 RETURNING id
-                """
-        batch_id = await self._connection.fetchrow(query,
-                                                   batch.reference,
-                                                   batch.stock_keeping_unit,
-                                                   batch.purchased_quantity,
-                                                   batch.estimated_arrival_time)
-
-        query = """
+            ), iol AS (
                 INSERT INTO order_lines (order_ref, sku, qty) 
                 (
                     SELECT r.order_ref, r.sku, r.qty
-                    FROM unnest($1::order_lines[]) as r 
+                    FROM unnest($5::order_lines[]) as r 
                 )
                 RETURNING id
-                """
-        order_lines_ids = await self._connection.fetch(query, [
-            (None, order_line.stock_keeping_unit, order_line.quantity, order_line.order_reference)
-            for order_line in batch.allocations
-        ])
+            )
+            INSERT INTO allocations (order_line_id, batch_id)
+            (
+                SELECT iol.id, (SELECT * FROM ib)
+                FROM iol
+            )
+            RETURNING batch_id
+        """
 
-        query = """
-                INSERT INTO allocations (order_line_id, batch_id) 
-                (
-                    SELECT r.order_line_id, r.batch_id
-                    FROM unnest($1::allocations[]) as r 
-                )
-                """
-        await self._connection.fetch(query, [
-            (None, order_line_id['id'], batch_id['id'])
-            for order_line_id in order_lines_ids
-        ])
+        batch_row = (batch.reference,
+                     batch.stock_keeping_unit,
+                     batch.purchased_quantity,
+                     batch.estimated_arrival_time)
 
-        self._seen.add(batch)
+        order_lines = [(None, order_line.stock_keeping_unit, order_line.quantity,
+                        order_line.order_reference)
+                       for order_line in batch.allocations]
+
+        batch_id = await self._connection.fetchrow(query, *batch_row, order_lines)
+
+        self._seen.add((batch_id, batch))
 
     async def list(self) -> List[model.Batch]:
         query = """
-                        SELECT b.batch_ref AS reference, 
-                               b.sku AS stock_keeping_unit, 
-                               b.qty AS quantity, 
-                               b.eta AS estimated_arrival_time, 
-                               array_agg(row(ol.order_ref, ol.sku, ol.qty)) AS allocations
-                        FROM batches b
-                        LEFT JOIN allocations a ON b.id = a.batch_id
-                        LEFT JOIN order_lines ol ON ol.id = a.order_line_id
-                        GROUP BY b.id
-                        """
+            SELECT b.id AS id,
+                   b.batch_ref AS reference, 
+                   b.sku AS stock_keeping_unit, 
+                   b.qty AS quantity, 
+                   b.eta AS estimated_arrival_time, 
+                   array_agg(row(ol.order_ref, ol.sku, ol.qty)) AS allocations
+            FROM batches b
+            LEFT JOIN allocations a ON b.id = a.batch_id
+            LEFT JOIN order_lines ol ON ol.id = a.order_line_id
+            GROUP BY b.id
+        """
         batch_rows = await self._connection.fetch(query)
 
         batches = []
@@ -121,13 +118,44 @@ class PostgresRepository(AbstractRepository):
                 batch.allocate(order_line)
 
             batches.append(batch)
-            self._seen.add(batch)
+            self._seen.add((batch_row['id'], batch))
 
         return batch_rows
 
-    async def _update(self, batch: model.Batch) -> None:
-        ...
+    async def save_changes(self) -> None:
+        update_batch = """
+            WITH ub AS (
+                UPDATE batches
+                   SET batch_ref = $2, sku = $3, qty = $4, eta = $5
+                 WHERE id = $1
+                 RETURNING id
+            ), iol AS (
+                INSERT INTO order_lines (sku, qty, order_ref) 
+                (
+                    SELECT r.sku, r.qty, r.order_ref
+                    FROM unnest($6::order_lines[]) as r 
+                )
+                ON CONFLICT DO NOTHING 
+                RETURNING id
+            )
+            INSERT INTO allocations (order_line_id, batch_id)
+            SELECT iol.id, (SELECT * FROM ub)
+            FROM iol
+        """
 
-    async def save_changes(self):
-        for batch in self._seen:
-            await self._update(batch)
+        batches_rows = []
+
+        for b_id, b in self._seen:
+            batch_row = [b_id, b.reference, b.stock_keeping_unit, b.purchased_quantity, b.estimated_arrival_time]
+            lines_rows = []
+            lines_order_refs = []
+
+            for line in b.allocations:
+                lines_rows.append(
+                    (None, line.stock_keeping_unit, line.quantity, line.order_reference)
+                )
+                lines_order_refs.append(line.order_reference)
+
+            batches_rows.append([*batch_row, lines_rows])
+
+        await self._connection.executemany(update_batch, batches_rows)
