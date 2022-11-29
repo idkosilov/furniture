@@ -11,10 +11,15 @@ def event_loop():
     return asyncio.get_event_loop()
 
 
-@pytest_asyncio.fixture(scope="session")
+@pytest_asyncio.fixture()
 async def pg_pool():
     poll = await asyncpg.create_pool(dsn=config.get_postgres_uri())
-    return poll
+    yield poll
+    async with poll.acquire() as connection:
+        async with connection.transaction():
+            await connection.execute('TRUNCATE TABLE batches CASCADE ')
+            await connection.execute('TRUNCATE TABLE order_lines CASCADE ')
+            await connection.execute('TRUNCATE TABLE allocations')
 
 
 @pytest_asyncio.fixture
