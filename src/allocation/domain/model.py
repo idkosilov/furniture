@@ -69,10 +69,16 @@ class Batch:
         return self._purchased_quantity
 
 
-def allocate(line: OrderLine, batches: List[Batch]) -> str:
-    try:
-        batch = next(batch for batch in sorted(batches) if batch.can_allocate(line))
-        batch.allocate(line)
-        return batch.ref
-    except StopIteration:
-        raise OutOfStock(f"Out of stock for sku {line.sku}")
+class Product:
+
+    def __init__(self, sku: str, batches: List[Batch]) -> None:
+        self.sku = sku
+        self.batches = batches
+
+    def allocate(self, line: OrderLine) -> str:
+        try:
+            batch = next(batch for batch in sorted(self.batches) if batch.can_allocate(line))
+            batch.allocate(line)
+            return batch.ref
+        except StopIteration:
+            raise OutOfStock(f"Out of stock for sku {line.sku}")
