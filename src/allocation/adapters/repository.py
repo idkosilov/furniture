@@ -6,28 +6,30 @@ import asyncpg
 from allocation.domain import model
 
 
-class AbstractRepository(ABC):
+class AbstractProductRepository(ABC):
 
     @abstractmethod
-    async def get(self, reference: str) -> Optional[model.Batch]:
+    async def get(self, sku: str) -> Optional[model.Product]:
         ...
 
     @abstractmethod
-    async def add(self, batch: model.Batch) -> None:
-        ...
-
-    async def list(self) -> List[model.Batch]:
+    async def add(self, product: model.Product) -> None:
         ...
 
 
-class PostgresRepository(AbstractRepository):
+class PostgresProductRepository(AbstractProductRepository):
 
     def __init__(self, connection: asyncpg.Connection) -> None:
         self._connection = connection
-        self._seen: Set[(int, model.Batch)] = set()
+        self._seen: Set[(int, model.Product)] = set()
 
-    async def get(self, reference: str) -> Optional[model.Batch]:
+    async def get(self, sku: str) -> Optional[model.Product]:
         query = """
+            WITH find_product AS (
+                SELECT sku
+                FROM products
+                WHERE sku = $1 
+            )
             SELECT b.id AS id,
                    b.batch_ref AS batch_ref, 
                    b.sku AS sku, 
@@ -37,22 +39,31 @@ class PostgresRepository(AbstractRepository):
             FROM batches b
             LEFT JOIN allocations a ON b.id = a.batch_id
             LEFT JOIN order_lines ol ON ol.id = a.order_line_id
-            WHERE batch_ref = $1
-            GROUP BY b.id
+            WHERE b.sku = find_product.sku
+            GROUP BY b.id                    
         """
-        batch_row = await self._connection.fetchrow(query, reference)
 
-        batch = model.Batch(batch_row["batch_ref"], batch_row["sku"], batch_row["qty"], batch_row["eta"])
+        product_batches_rows = await self._connection.fetch(query, sku)
 
-        for order_line_row in batch_row["allocations"]:
-            order_line = model.OrderLine(*order_line_row)
-            batch.allocate(order_line)
+        if len(product_batches_rows) != 0:
+            batches = []
 
-        self._seen.add((batch_row["id"], batch))
+            for batch_row in product_batches_rows:
+                batch = model.Batch(batch_row["batch_ref"], batch_row["sku"], batch_row["qty"], batch_row["eta"])
+                batches.append(batch)
 
-        return batch
+                for order_line_row in batch_row["allocations"]:
+                    order_line = model.OrderLine(*order_line_row)
+                    batch.allocations.add(order_line)
 
-    async def add(self, batch: model.Batch) -> None:
+            product = model.Product(sku, batches)
+            self._seen.add(product)
+
+            return product
+
+    async def add(self, product: model.Product) -> None:
+        await self._connection.execute("INSERT INTO products VALUES ($1)", product.sku)
+
         query = """
             WITH ib AS (
                 INSERT INTO batches (batch_ref, sku, qty, eta) 
@@ -71,83 +82,23 @@ class PostgresRepository(AbstractRepository):
                 SELECT iol.id, (SELECT * FROM ib)
                 FROM iol
             )
-            RETURNING batch_id
         """
 
-        batch_row = (batch.ref, batch.sku, batch.purchased_quantity, batch.eta)
-        order_lines = [(None, order_line.sku, order_line.qty, order_line.order_ref) for order_line in batch.allocations]
+        allocations_groups = []
 
-        batch_id = await self._connection.fetchrow(query, *batch_row, order_lines)
+        for batch in product.batches:
+            allocations_rows = []
+            for line in batch.allocations:
+                allocations_rows.append((None, line.sku, line.qty, line.order_ref))
 
-        self._seen.add((batch_id, batch))
+            allocation_group = [batch.ref, batch.sku, batch.purchased_quantity, batch.eta, allocations_rows]
+            allocations_groups.append(allocation_group)
 
-    async def list(self) -> List[model.Batch]:
-        query = """
-            SELECT b.id AS id,
-                   b.batch_ref AS batch_ref, 
-                   b.sku AS sku, 
-                   b.qty AS qty, 
-                   b.eta AS eta, 
-                   array_agg(row(ol.order_ref, ol.sku, ol.qty)) AS allocations
-            FROM batches b
-            LEFT JOIN allocations a ON b.id = a.batch_id
-            LEFT JOIN order_lines ol ON ol.id = a.order_line_id
-            GROUP BY b.id
-        """
-        batch_rows = await self._connection.fetch(query)
+        await self._connection.executemany(query, allocations_groups)
 
-        batches = []
-
-        for batch_row in batch_rows:
-            batch = model.Batch(batch_row["batch_ref"], batch_row["sku"], batch_row["qty"], batch_row["eta"])
-
-            for order_line_row in batch_row["allocations"]:
-                order_line = model.OrderLine(*order_line_row)
-                batch.allocate(order_line)
-
-            batches.append(batch)
-            self._seen.add((batch_row['id'], batch))
-
-        return batch_rows
+        self._seen.add(product)
 
     async def save_changes(self) -> None:
-        delete_order_lines = """
-            DELETE FROM order_lines
-            WHERE order_ref <> any($1::varchar[])
-        """
+        while len(self._seen) != 0:
+            product = self._seen.pop()
 
-        update_batch = """
-            WITH ub AS (
-                UPDATE batches
-                   SET batch_ref = $2, sku = $3, qty = $4, eta = $5
-                 WHERE id = $1
-                 RETURNING id
-            ), iol AS (
-                INSERT INTO order_lines (sku, qty, order_ref) 
-                (
-                    SELECT r.sku, r.qty, r.order_ref
-                    FROM unnest($6::order_lines[]) as r 
-                )
-                ON CONFLICT DO NOTHING 
-                RETURNING id
-            )
-            INSERT INTO allocations (order_line_id, batch_id)
-            SELECT iol.id, (SELECT * FROM ub)
-            FROM iol
-        """
-
-        batches_rows = []
-        actual_order_lines = []
-
-        for b_id, b in self._seen:
-            batch_row = [b_id, b.ref, b.sku, b.purchased_quantity, b.eta]
-            lines_rows = []
-
-            for line in b.allocations:
-                lines_rows.append((None, line.sku, line.qty, line.order_ref))
-                actual_order_lines.append(line.order_ref)
-
-            batches_rows.append([*batch_row, lines_rows])
-
-        await self._connection.execute(delete_order_lines, actual_order_lines)
-        await self._connection.executemany(update_batch, batches_rows)

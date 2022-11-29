@@ -6,7 +6,7 @@ from allocation.adapters import repository
 
 
 class AbstractUnitOfWork(ABC):
-    batches: repository.AbstractRepository
+    products: repository.AbstractProductRepository
 
     async def __aenter__(self) -> "AbstractUnitOfWork":
         return self
@@ -24,7 +24,7 @@ class AbstractUnitOfWork(ABC):
 
 
 class PostgresUnitOfWork(AbstractUnitOfWork):
-    batches: repository.PostgresRepository
+    batches: repository.PostgresProductRepository
 
     def __init__(self, pool: Pool) -> None:
         self._pool = pool
@@ -32,7 +32,7 @@ class PostgresUnitOfWork(AbstractUnitOfWork):
     async def __aenter__(self) -> "PostgresUnitOfWork":
         self.connection: Connection = await self._pool.acquire()
         self.transaction: Transaction = self.connection.transaction()
-        self.batches = repository.PostgresRepository(self.connection)
+        self.batches = repository.PostgresProductRepository(self.connection)
         await self.transaction.start()
         return await super().__aenter__()
 
