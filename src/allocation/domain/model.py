@@ -7,6 +7,10 @@ class OutOfStock(Exception):
     pass
 
 
+class NotAllocated(Exception):
+    pass
+
+
 @dataclass(unsafe_hash=True)
 class OrderLine:
     order_ref: str
@@ -82,3 +86,10 @@ class Product:
             return batch.ref
         except StopIteration:
             raise OutOfStock(f"Out of stock for sku {line.sku}")
+
+    def deallocate(self, line: OrderLine) -> None:
+        try:
+            batch = next(batch for batch in self.batches if line in batch.allocations)
+            batch.deallocate(line)
+        except StopIteration:
+            raise NotAllocated(f"Order line for sku {line.sku} is not allocated")
