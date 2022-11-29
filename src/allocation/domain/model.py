@@ -15,12 +15,7 @@ class OrderLine:
 
 
 class Batch:
-    def __init__(self,
-                 batch_ref: str,
-                 sku: str,
-                 qty: int,
-                 eta: Optional[datetime.date]) -> None:
-
+    def __init__(self, batch_ref: str, sku: str, qty: int, eta: Optional[datetime.date]) -> None:
         self.ref = batch_ref
         self.sku = sku
         self.eta = eta
@@ -66,11 +61,11 @@ class Batch:
         return self.sku == line.sku and self.available_quantity >= line.qty
 
     @property
-    def allocations(self):
+    def allocations(self) -> Set[OrderLine]:
         return self._allocations
 
     @property
-    def purchased_quantity(self):
+    def purchased_quantity(self) -> int:
         return self._purchased_quantity
 
 
