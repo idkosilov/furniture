@@ -123,6 +123,11 @@ class PostgresRepository(AbstractRepository):
         return batch_rows
 
     async def save_changes(self) -> None:
+        delete_order_lines = """
+            DELETE FROM order_lines
+            WHERE order_ref <> any($1::varchar[])
+        """
+
         update_batch = """
             WITH ub AS (
                 UPDATE batches
@@ -144,18 +149,19 @@ class PostgresRepository(AbstractRepository):
         """
 
         batches_rows = []
+        actual_order_lines = []
 
         for b_id, b in self._seen:
             batch_row = [b_id, b.reference, b.stock_keeping_unit, b.purchased_quantity, b.estimated_arrival_time]
             lines_rows = []
-            lines_order_refs = []
 
             for line in b.allocations:
                 lines_rows.append(
                     (None, line.stock_keeping_unit, line.quantity, line.order_reference)
                 )
-                lines_order_refs.append(line.order_reference)
+                actual_order_lines.append(line.order_reference)
 
             batches_rows.append([*batch_row, lines_rows])
 
+        await self._connection.execute(delete_order_lines, actual_order_lines)
         await self._connection.executemany(update_batch, batches_rows)
