@@ -17,6 +17,7 @@ async def pg_pool():
     yield poll
     async with poll.acquire() as connection:
         async with connection.transaction():
+            await connection.execute('TRUNCATE TABLE products CASCADE')
             await connection.execute('TRUNCATE TABLE batches CASCADE ')
             await connection.execute('TRUNCATE TABLE order_lines CASCADE ')
             await connection.execute('TRUNCATE TABLE allocations')
