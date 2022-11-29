@@ -1,5 +1,7 @@
 import datetime
 
+import pytest
+
 from allocation.domain import model
 
 today = datetime.date.today()
@@ -42,3 +44,12 @@ def test_returns_allocated_batch_ref():
     allocation = product.allocate(line)
 
     assert allocation == in_stock_batch.ref
+
+
+def test_raises_out_of_stock_exception_if_cannot_allocate():
+    batch = model.Batch("batch1", "SMALL-FORK", 10, eta=today)
+    product = model.Product(sku="SMALL-FORK", batches=[batch])
+    product.allocate(model.OrderLine("order1", "SMALL-FORK", 10))
+
+    with pytest.raises(model.OutOfStock, match="SMALL-FORK"):
+        product.allocate(model.OrderLine("order2", "SMALL-FORK", 1))
