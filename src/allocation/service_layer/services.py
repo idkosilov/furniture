@@ -10,7 +10,7 @@ class InvalidSku(Exception):
 
 
 def is_valid_sku(sku: str, batches: Iterable[model.Batch]):
-    return sku in {b.stock_keeping_unit for b in batches}
+    return sku in {b.sku for b in batches}
 
 
 async def add_batch(ref: str, sku: str, qty: int, eta: Optional[date], uow: unit_of_work.AbstractUnitOfWork):

@@ -29,10 +29,10 @@ class PostgresRepository(AbstractRepository):
     async def get(self, reference: str) -> Optional[model.Batch]:
         query = """
             SELECT b.id AS id,
-                   b.batch_ref AS reference, 
-                   b.sku AS stock_keeping_unit, 
-                   b.qty AS quantity, 
-                   b.eta AS estimated_arrival_time, 
+                   b.batch_ref AS batch_ref, 
+                   b.sku AS sku, 
+                   b.qty AS qty, 
+                   b.eta AS eta, 
                    array_agg(row(ol.order_ref, ol.sku, ol.qty)) AS allocations
             FROM batches b
             LEFT JOIN allocations a ON b.id = a.batch_id
@@ -42,10 +42,7 @@ class PostgresRepository(AbstractRepository):
         """
         batch_row = await self._connection.fetchrow(query, reference)
 
-        batch = model.Batch(batch_row["reference"],
-                            batch_row["stock_keeping_unit"],
-                            batch_row["quantity"],
-                            batch_row["estimated_arrival_time"])
+        batch = model.Batch(batch_row["batch_ref"], batch_row["sku"], batch_row["qty"], batch_row["eta"])
 
         for order_line_row in batch_row["allocations"]:
             order_line = model.OrderLine(*order_line_row)
@@ -77,14 +74,8 @@ class PostgresRepository(AbstractRepository):
             RETURNING batch_id
         """
 
-        batch_row = (batch.reference,
-                     batch.stock_keeping_unit,
-                     batch.purchased_quantity,
-                     batch.estimated_arrival_time)
-
-        order_lines = [(None, order_line.stock_keeping_unit, order_line.quantity,
-                        order_line.order_reference)
-                       for order_line in batch.allocations]
+        batch_row = (batch.ref, batch.sku, batch.purchased_quantity, batch.eta)
+        order_lines = [(None, order_line.sku, order_line.qty, order_line.order_ref) for order_line in batch.allocations]
 
         batch_id = await self._connection.fetchrow(query, *batch_row, order_lines)
 
@@ -93,10 +84,10 @@ class PostgresRepository(AbstractRepository):
     async def list(self) -> List[model.Batch]:
         query = """
             SELECT b.id AS id,
-                   b.batch_ref AS reference, 
-                   b.sku AS stock_keeping_unit, 
-                   b.qty AS quantity, 
-                   b.eta AS estimated_arrival_time, 
+                   b.batch_ref AS batch_ref, 
+                   b.sku AS sku, 
+                   b.qty AS qty, 
+                   b.eta AS eta, 
                    array_agg(row(ol.order_ref, ol.sku, ol.qty)) AS allocations
             FROM batches b
             LEFT JOIN allocations a ON b.id = a.batch_id
@@ -108,10 +99,7 @@ class PostgresRepository(AbstractRepository):
         batches = []
 
         for batch_row in batch_rows:
-            batch = model.Batch(batch_row["reference"],
-                                batch_row["stock_keeping_unit"],
-                                batch_row["quantity"],
-                                batch_row["estimated_arrival_time"])
+            batch = model.Batch(batch_row["batch_ref"], batch_row["sku"], batch_row["qty"], batch_row["eta"])
 
             for order_line_row in batch_row["allocations"]:
                 order_line = model.OrderLine(*order_line_row)
@@ -152,14 +140,12 @@ class PostgresRepository(AbstractRepository):
         actual_order_lines = []
 
         for b_id, b in self._seen:
-            batch_row = [b_id, b.reference, b.stock_keeping_unit, b.purchased_quantity, b.estimated_arrival_time]
+            batch_row = [b_id, b.ref, b.sku, b.purchased_quantity, b.eta]
             lines_rows = []
 
             for line in b.allocations:
-                lines_rows.append(
-                    (None, line.stock_keeping_unit, line.quantity, line.order_reference)
-                )
-                actual_order_lines.append(line.order_reference)
+                lines_rows.append((None, line.sku, line.qty, line.order_ref))
+                actual_order_lines.append(line.order_ref)
 
             batches_rows.append([*batch_row, lines_rows])
 

@@ -38,4 +38,4 @@ def test_returns_allocated_batch_ref():
 
     allocation = model.allocate(line, [in_stock_batch, shipment_batch])
 
-    assert allocation == in_stock_batch.reference
+    assert allocation == in_stock_batch.ref

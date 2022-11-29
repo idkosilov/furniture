@@ -9,42 +9,42 @@ class OutOfStock(Exception):
 
 @dataclass(unsafe_hash=True)
 class OrderLine:
-    order_reference: str
-    stock_keeping_unit: str
-    quantity: int
+    order_ref: str
+    sku: str
+    qty: int
 
 
 class Batch:
     def __init__(self,
-                 reference: str,
-                 stock_keeping_unit: str,
-                 quantity: int,
-                 estimated_arrival_time: Optional[datetime.date]) -> None:
+                 batch_ref: str,
+                 sku: str,
+                 qty: int,
+                 eta: Optional[datetime.date]) -> None:
 
-        self.reference = reference
-        self.stock_keeping_unit = stock_keeping_unit
-        self.estimated_arrival_time = estimated_arrival_time
+        self.ref = batch_ref
+        self.sku = sku
+        self.eta = eta
 
-        self._purchased_quantity = quantity
+        self._purchased_quantity = qty
         self._allocations: Set[OrderLine] = set()
 
     def __repr__(self) -> str:
-        return f'<Batch {self.reference}>'
+        return f'<Batch {self.ref}>'
 
     def __eq__(self, other) -> bool:
         if not isinstance(other, Batch):
             return False
-        return other.reference == self.reference
+        return other.ref == self.ref
 
     def __hash__(self) -> int:
-        return hash(self.reference)
+        return hash(self.ref)
 
     def __gt__(self, other) -> bool:
-        if self.estimated_arrival_time is None:
+        if self.eta is None:
             return False
-        if other.estimated_arrival_time is None:
+        if other.eta is None:
             return True
-        return self.estimated_arrival_time > other.estimated_arrival_time
+        return self.eta > other.eta
 
     def allocate(self, line: OrderLine) -> None:
         if self.can_allocate(line):
@@ -56,14 +56,14 @@ class Batch:
 
     @property
     def allocated_quantity(self) -> int:
-        return sum(line.quantity for line in self._allocations)
+        return sum(line.qty for line in self._allocations)
 
     @property
     def available_quantity(self) -> int:
         return self._purchased_quantity - self.allocated_quantity
 
     def can_allocate(self, line: OrderLine) -> bool:
-        return self.stock_keeping_unit == line.stock_keeping_unit and self.available_quantity >= line.quantity
+        return self.sku == line.sku and self.available_quantity >= line.qty
 
     @property
     def allocations(self):
@@ -78,6 +78,6 @@ def allocate(line: OrderLine, batches: List[Batch]) -> str:
     try:
         batch = next(batch for batch in sorted(batches) if batch.can_allocate(line))
         batch.allocate(line)
-        return batch.reference
+        return batch.ref
     except StopIteration:
-        raise OutOfStock(f"Out of stock for sku {line.stock_keeping_unit}")
+        raise OutOfStock(f"Out of stock for sku {line.sku}")
