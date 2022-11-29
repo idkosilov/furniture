@@ -24,7 +24,7 @@ class AbstractUnitOfWork(ABC):
 
 
 class PostgresUnitOfWork(AbstractUnitOfWork):
-    batches: repository.PostgresProductRepository
+    products: repository.PostgresProductRepository
 
     def __init__(self, pool: Pool) -> None:
         self._pool = pool
@@ -32,7 +32,7 @@ class PostgresUnitOfWork(AbstractUnitOfWork):
     async def __aenter__(self) -> "PostgresUnitOfWork":
         self.connection: Connection = await self._pool.acquire()
         self.transaction: Transaction = self.connection.transaction()
-        self.batches = repository.PostgresProductRepository(self.connection)
+        self.products = repository.PostgresProductRepository(self.connection)
         await self.transaction.start()
         return await super().__aenter__()
 
@@ -41,7 +41,7 @@ class PostgresUnitOfWork(AbstractUnitOfWork):
         await self._pool.release(self.connection)
 
     async def commit(self) -> None:
-        await self.batches.save_changes()
+        await self.products.save_changes()
         await self.transaction.commit()
 
     async def rollback(self) -> None:

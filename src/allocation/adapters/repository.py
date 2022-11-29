@@ -39,7 +39,7 @@ class PostgresProductRepository(AbstractProductRepository):
             FROM batches b
             LEFT JOIN allocations a ON b.id = a.batch_id
             LEFT JOIN order_lines ol ON ol.id = a.order_line_id
-            WHERE b.sku = find_product.sku
+            WHERE b.sku = (SELECT sku FROM find_product)
             GROUP BY b.id                    
         """
 
@@ -54,7 +54,8 @@ class PostgresProductRepository(AbstractProductRepository):
 
                 for order_line_row in batch_row["allocations"]:
                     order_line = model.OrderLine(*order_line_row)
-                    batch.allocations.add(order_line)
+                    if batch.can_allocate(order_line):
+                        batch.allocations.add(order_line)
 
             product = model.Product(sku, batches)
             self._seen.add(product)
@@ -101,4 +102,45 @@ class PostgresProductRepository(AbstractProductRepository):
     async def save_changes(self) -> None:
         while len(self._seen) != 0:
             product = self._seen.pop()
+
+            delete_order_lines = """
+                        DELETE FROM order_lines
+                        WHERE order_ref <> any($1::varchar[])
+                    """
+
+            update_batch = """
+                        WITH ub AS (
+                            UPDATE batches
+                               SET batch_ref = $2, qty = $3, eta = $4
+                             WHERE sku = $1
+                             RETURNING id
+                        ), iol AS (
+                            INSERT INTO order_lines (sku, qty, order_ref) 
+                            (
+                                SELECT r.sku, r.qty, r.order_ref
+                                FROM unnest($5::order_lines[]) as r 
+                            )
+                            ON CONFLICT DO NOTHING 
+                            RETURNING id
+                        )
+                        INSERT INTO allocations (order_line_id, batch_id)
+                        SELECT iol.id, (SELECT * FROM ub)
+                        FROM iol
+                    """
+
+            batches_rows = []
+            actual_order_lines = []
+
+            for batch in product.batches:
+                batch_row = [product.sku, batch.ref, batch.purchased_quantity, batch.eta]
+                lines_rows = []
+
+                for line in batch.allocations:
+                    lines_rows.append((None, line.sku, line.qty, line.order_ref))
+                    actual_order_lines.append(line.order_ref)
+
+                batches_rows.append([*batch_row, lines_rows])
+
+            await self._connection.execute(delete_order_lines, actual_order_lines)
+            await self._connection.executemany(update_batch, batches_rows)
 
