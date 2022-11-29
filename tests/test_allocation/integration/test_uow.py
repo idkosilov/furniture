@@ -1,4 +1,5 @@
 import datetime
+import uuid
 
 import pytest
 from asyncpg.connection import Connection
@@ -7,7 +8,25 @@ from allocation.domain import model
 from allocation.service_layer import unit_of_work
 
 
+def random_suffix():
+    return uuid.uuid4().hex[:6]
+
+
+def random_sku(name=""):
+    return f"sku-{name}-{random_suffix()}"
+
+
+def random_batchref(name=""):
+    return f"batch-{name}-{random_suffix()}"
+
+
+def random_orderid(name=""):
+    return f"order-{name}-{random_suffix()}"
+
+
 async def insert_batch(connection: Connection, ref: str, sku: str, qty: int, eta: datetime.datetime):
+    await connection.execute("INSERT INTO products VALUES ($1) ON CONFLICT DO NOTHING", sku)
+
     batch_id = await connection.fetchval(
         "INSERT INTO batches (batch_ref, sku, qty, eta)"
         " VALUES ($1, $2, $3, $4)"
@@ -51,9 +70,9 @@ async def test_uow_can_retrieve_a_batch_and_allocate_to_it(pg_pool):
     uow = unit_of_work.PostgresUnitOfWork(pg_pool)
 
     async with uow:
-        batch = await uow.batches.get(reference="batch1")
+        product = await uow.products.get(sku="HIPSTER-WORKBENCH")
         line = model.OrderLine("o1", "HIPSTER-WORKBENCH", 10)
-        batch.allocate(line)
+        product.allocate(line)
         await uow.commit()
 
     async with pg_pool.acquire() as connection:
@@ -74,11 +93,11 @@ async def test_uow_can_retrieve_a_batch_and_allocate_few_lines_to_it_and_dealloc
     uow = unit_of_work.PostgresUnitOfWork(pg_pool)
 
     async with uow:
-        batch = await uow.batches.get(reference="batch1")
+        product = await uow.products.get(sku="HIPSTER-WORKBENCH")
         new_line = model.OrderLine("order-4", "HIPSTER-WORKBENCH", 10)
-        batch.allocate(new_line)
+        product.allocate(new_line)
         old_line = model.OrderLine("order-1", "HIPSTER-WORKBENCH", 10)
-        batch.deallocate(old_line)
+        product.deallocate(old_line)
         await uow.commit()
 
     async with pg_pool.acquire() as connection:
