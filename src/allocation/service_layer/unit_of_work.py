@@ -3,6 +3,7 @@ from abc import ABC, abstractmethod
 from asyncpg import Pool, Connection
 from asyncpg.transaction import Transaction, TransactionState
 from allocation.adapters import repository
+from allocation.service_layer import messagebus
 
 
 class AbstractUnitOfWork(ABC):
@@ -14,8 +15,18 @@ class AbstractUnitOfWork(ABC):
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
         await self.rollback()
 
+    async def publish_events(self):
+        for product in self.products.seen:
+            while product.events:
+                event = product.events.pop(0)
+                await messagebus.handle(event)
+
+    async def commit(self):
+        await self._commit()
+        await self.publish_events()
+
     @abstractmethod
-    async def commit(self) -> None:
+    async def _commit(self) -> None:
         raise NotImplementedError
 
     @abstractmethod
@@ -40,7 +51,7 @@ class PostgresUnitOfWork(AbstractUnitOfWork):
         await super().__aexit__(*args)
         await self._pool.release(self.connection)
 
-    async def commit(self) -> None:
+    async def _commit(self) -> None:
         await self.products.save_changes()
         await self.transaction.commit()
 
