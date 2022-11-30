@@ -8,12 +8,13 @@ from allocation.service_layer import services, unit_of_work
 
 class FakeRepository(repository.AbstractProductRepository):
     def __init__(self, products):
+        super().__init__()
         self._products = set(products)
 
-    async def add(self, product):
+    async def _add(self, product):
         self._products.add(product)
 
-    async def get(self, sku):
+    async def _get(self, sku):
         return next((p for p in self._products if p.sku == sku), None)
 
 
