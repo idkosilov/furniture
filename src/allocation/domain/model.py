@@ -2,6 +2,8 @@ import datetime
 from dataclasses import dataclass
 from typing import Optional, Set, List
 
+from allocation.domain import events
+
 
 class OutOfStock(Exception):
     pass
@@ -78,6 +80,7 @@ class Product:
     def __init__(self, sku: str, batches: List[Batch]) -> None:
         self.sku = sku
         self.batches = batches
+        self.events: List[events.Event] = []
 
     def allocate(self, line: OrderLine) -> str:
         try:
@@ -92,4 +95,4 @@ class Product:
             batch = next(batch for batch in self.batches if line in batch.allocations)
             batch.deallocate(line)
         except StopIteration:
-            raise NotAllocated(f"Order line for sku {line.sku} is not allocated")
+            self.events.append(events.OutOfStock(sku=line.sku))
