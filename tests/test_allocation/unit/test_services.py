@@ -23,7 +23,7 @@ class FakeUnitOfWork(unit_of_work.AbstractUnitOfWork):
         self.products = FakeRepository([])
         self.committed = False
 
-    async def commit(self):
+    async def _commit(self):
         self.committed = True
 
     async def rollback(self):

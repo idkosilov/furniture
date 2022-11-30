@@ -27,4 +27,4 @@ async def allocate(order_ref: str, sku: str, qty: int, uow: unit_of_work.Abstrac
             raise InvalidSku(f"Invalid sku {line.sku}")
         batch_ref = product.allocate(line)
         await uow.commit()
-    return batch_ref
+        return batch_ref
