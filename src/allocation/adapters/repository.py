@@ -7,23 +7,35 @@ from allocation.domain import model
 
 
 class AbstractProductRepository(ABC):
+    def __init__(self):
+        self.seen: Set[model.Product] = set()
+
+    async def add(self, product: model.Product):
+        await self._add(product)
+        self.seen.add(product)
+
+    async def get(self, sku) -> model.Product:
+        product = await self._get(sku)
+        if product:
+            self.seen.add(product)
+        return product
 
     @abstractmethod
-    async def get(self, sku: str) -> Optional[model.Product]:
+    async def _get(self, sku: str) -> Optional[model.Product]:
         ...
 
     @abstractmethod
-    async def add(self, product: model.Product) -> None:
+    async def _add(self, product: model.Product) -> None:
         ...
 
 
 class PostgresProductRepository(AbstractProductRepository):
 
     def __init__(self, connection: asyncpg.Connection) -> None:
+        super().__init__()
         self._connection = connection
-        self._seen: Set[(int, model.Product)] = set()
 
-    async def get(self, sku: str) -> Optional[model.Product]:
+    async def _get(self, sku: str) -> Optional[model.Product]:
         query = """
             WITH find_product AS (
                 SELECT sku
@@ -58,11 +70,10 @@ class PostgresProductRepository(AbstractProductRepository):
                         batch.allocations.add(order_line)
 
             product = model.Product(sku, batches)
-            self._seen.add(product)
 
             return product
 
-    async def add(self, product: model.Product) -> None:
+    async def _add(self, product: model.Product) -> None:
         await self._connection.execute("INSERT INTO products VALUES ($1)", product.sku)
 
         query = """
@@ -97,11 +108,9 @@ class PostgresProductRepository(AbstractProductRepository):
 
         await self._connection.executemany(query, allocations_groups)
 
-        self._seen.add(product)
-
     async def save_changes(self) -> None:
-        while len(self._seen) != 0:
-            product = self._seen.pop()
+        while len(self.seen) != 0:
+            product = self.seen.pop()
 
             delete_order_lines = """
                         DELETE FROM order_lines
