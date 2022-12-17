@@ -3,7 +3,6 @@ from abc import ABC, abstractmethod
 from asyncpg import Pool, Connection
 from asyncpg.transaction import Transaction, TransactionState
 from allocation.adapters import repository
-from allocation.service_layer import messagebus
 
 
 class AbstractUnitOfWork(ABC):
