@@ -14,7 +14,7 @@ class AbstractUnitOfWork(ABC):
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
         await self.rollback()
 
-    async def collect_new_events(self):
+    def collect_new_events(self):
         for product in self.products.seen:
             while product.events:
                 yield product.events.pop(0)

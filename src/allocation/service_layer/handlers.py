@@ -31,5 +31,12 @@ async def allocate(event: events.AllocationRequired, uow: unit_of_work.AbstractU
         return batch_ref
 
 
+async def change_batch_quantity(event: events.BatchQuantityChanged, uow: unit_of_work.AbstractUnitOfWork):
+    async with uow:
+        product = await uow.products.get_by_batch_ref(batch_ref=event.ref)
+        product.change_batch_quantity(ref=event.ref, qty=event.qty)
+        await uow.commit()
+
+
 async def send_out_of_stock_notification(event: events.OutOfStock, uow: unit_of_work.AbstractUnitOfWork):
-    await email.send('stock@made.com', f'Артикула {event.sku} нет в наличии',)
+    await email.send('stock@made.com', f'Артикула {event.sku} нет в наличии', )

@@ -10,6 +10,12 @@ class AbstractProductRepository(ABC):
     def __init__(self):
         self.seen: Set[model.Product] = set()
 
+    async def get_by_batch_ref(self, batch_ref: str) -> model.Product:
+        product = await self._get_by_batch_ref(batch_ref)
+        if product:
+            self.seen.add(product)
+        return product
+
     async def add(self, product: model.Product):
         await self._add(product)
         self.seen.add(product)
@@ -19,6 +25,10 @@ class AbstractProductRepository(ABC):
         if product:
             self.seen.add(product)
         return product
+
+    @abstractmethod
+    async def _get_by_batch_ref(self, batch_ref: str) -> model.Product:
+        ...
 
     @abstractmethod
     async def _get(self, sku: str) -> Optional[model.Product]:
@@ -72,6 +82,11 @@ class PostgresProductRepository(AbstractProductRepository):
             product = model.Product(sku, batches)
 
             return product
+
+    async def _get_by_batch_ref(self, batch_ref: str) -> model.Product:
+        query = """SELECT sku FROM batches WHERE batch_ref = $1 LIMIT 1"""
+        product_sku = await self._connection.fetchval(query, batch_ref)
+        return await self._get(product_sku)
 
     async def _add(self, product: model.Product) -> None:
         await self._connection.execute("INSERT INTO products VALUES ($1)", product.sku)
@@ -152,4 +167,3 @@ class PostgresProductRepository(AbstractProductRepository):
 
             await self._connection.execute(delete_order_lines, actual_order_lines)
             await self._connection.executemany(update_batch, batches_rows)
-

@@ -148,3 +148,17 @@ async def test_rolls_back_on_error(pg_pool):
         rows = await connection.fetch('SELECT * FROM "batches"')
 
     assert rows == []
+
+
+@pytest.mark.asyncio
+async def test_uow_can_retrieve_a_product_by_batch_ref(pg_pool):
+    async with pg_pool.acquire() as connection:
+        async with connection.transaction():
+            await insert_batch(connection, "batch1", "HIPSTER-WORKBENCH", 100, None)
+
+    uow = unit_of_work.PostgresUnitOfWork(pg_pool)
+
+    async with uow:
+        product = await uow.products.get_by_batch_ref(batch_ref="batch1")
+
+    assert product.sku == "HIPSTER-WORKBENCH"
