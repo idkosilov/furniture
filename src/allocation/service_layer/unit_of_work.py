@@ -15,15 +15,13 @@ class AbstractUnitOfWork(ABC):
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
         await self.rollback()
 
-    async def publish_events(self):
+    async def collect_new_events(self):
         for product in self.products.seen:
             while product.events:
-                event = product.events.pop(0)
-                await messagebus.handle(event)
+                yield product.events.pop(0)
 
     async def commit(self):
         await self._commit()
-        await self.publish_events()
 
     @abstractmethod
     async def _commit(self) -> None:
